@@ -4,9 +4,8 @@
   "description": "",
   "main": "grid.js",
   "scripts": {
-    "build": "parcel build -d docs index.html",
+    "build": "parcel build -d docs --public-url https://pardo.github.io/dots_and_lines/ index.html",
     "serve": "parcel serve --no-autoinstall index.html"
-
   },
   "author": "",
   "license": "ISC",
