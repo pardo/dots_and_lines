@@ -4,7 +4,9 @@
   "description": "",
   "main": "grid.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "parcel build -d docs index.html",
+    "serve": "parcel serve --no-autoinstall index.html"
+
   },
   "author": "",
   "license": "ISC",
