@@ -5,11 +5,13 @@
   "main": "grid.js",
   "scripts": {
     "build": "parcel build -d docs --public-url https://pardo.github.io/dots_and_lines/ index.html",
-    "serve": "parcel serve --no-autoinstall index.html"
+    "serve": "parcel serve --no-autoinstall index.html",
+    "ncu": "ncu"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "parcel-bundler": "^1.9.7"
+    "npm-check-updates": "^2.15.0",
+    "parcel-bundler": "^1.10.3"
   }
 }
