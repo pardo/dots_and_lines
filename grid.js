@@ -36,16 +36,19 @@ function GridGame () {
     // networking
     this.matchHosting = false
     this.matchJoined = false
+    this.matchWaitingConnection = false
     this.matchName = null
     this.matchPlayer = BLUE // server blue | client red
 
-    this.matchWaitingConnection = false
     this.attachUIEvents()
     this.createDom()
     this.pushToHistory()
   }
 
   this.attachUIEvents = function () {
+    window.document.querySelector('#reset').addEventListener('click', (e) => {
+      this.resetGame()
+    })
     window.document.querySelector('#join').addEventListener('click', (e) => {
       e.preventDefault()
       this.joinMatch()
@@ -157,6 +160,28 @@ function GridGame () {
     this.markBlockAs(x, y, true, currentPlayer)
   }
 
+  this.updateHeaderState = function () {
+    const hostBTN = document.querySelector('#host')
+    const joinBTN = document.querySelector('#join')
+    const resetBTN = document.querySelector('#reset')
+    const connectionStatusLabel = document.querySelector('#connectionStatus')
+    joinBTN.classList.remove('lock', 'hide')
+    hostBTN.classList.remove('lock', 'hide')
+    resetBTN.classList.remove('lock', 'hide')
+    connectionStatusLabel.innerText = ''
+    if (this.matchWaitingConnection) {
+      connectionStatusLabel.innerText = 'Waiting Connection'
+    }
+    if (this.matchHosting) {
+      hostBTN.classList.add('lock')
+      joinBTN.classList.add('hide')
+    }
+    if (this.matchJoined) {
+      joinBTN.classList.add('lock')
+      hostBTN.classList.add('hide')
+      resetBTN.classList.add('hide')
+    }
+  }
   this.setBackgroundPlayer = function () {
     // add greenish background color if our turn
     // check if online first
@@ -320,6 +345,7 @@ function GridGame () {
       completedBlocks: {},
       points: points
     })
+    this.sendUpdate()
   }
 
   this.serialize = function () {
@@ -361,6 +387,7 @@ function GridGame () {
       }
     }
     this.updateCurrentPlayer(this.currentPlayer)
+    this.checkEnd()
   }
 
   this.save = function () {
@@ -426,6 +453,14 @@ function GridGame () {
   }
 
   // networking
+  this.connectionError = function () {
+    // reset networking state
+    this.matchHosting = false
+    this.matchJoined = false
+    this.matchWaitingConnection = false
+    this.updateHeaderState()
+  }
+
   this.connectionReceived = function (conn) {
     // server received a connection
     console.log('connection received')
@@ -438,10 +473,11 @@ function GridGame () {
         this['network_' + data.action](data)
       }
     })
-
     conn.on('close', () => {
       window.alert('Connection lost')
+      this.connectionError()
     })
+    this.updateHeaderState()
   }
 
   this.connectedToServer = function (conn) {
@@ -456,10 +492,15 @@ function GridGame () {
         this['network_' + data.action](data)
       }
     })
+    conn.on('close', () => {
+      window.alert('Connection lost')
+      this.connectionError()
+    })
+    this.updateHeaderState()
   }
 
   this.getPeerJS = function (name) {
-    let options = {}
+    let options = { secure: false }
     if (!name) {
       // do whatever if no name provided
       name = parseInt(Math.random() * 10000).toString()
@@ -475,11 +516,19 @@ function GridGame () {
     this.matchWaitingConnection = true
     this.matchHosting = true
     this.matchPlayer = BLUE
-    this.matchName = window.prompt('Put a name to the match')
+    this.matchName = window.prompt('Put a name to the match', this.matchName ? this.matchName : '')
+    if (this.peer) { this.peer.destroy() }
     this.peer = this.getPeerJS(this.matchName)
+
+    this.peer.on('error', (evt) => {
+      window.alert('Connection Error: ' + evt.type)
+      this.connectionError()
+    })
+
     this.peer.on('connection', (conn) => {
       this.connectionReceived(conn)
     })
+    this.updateHeaderState()
   }
 
   this.joinMatch = function () {
@@ -487,11 +536,17 @@ function GridGame () {
     this.matchJoined = true
     this.matchPlayer = RED
     this.matchName = window.prompt('I need the name of the match')
+    if (this.peer) { this.peer.destroy() }
     this.peer = this.getPeerJS()
+    this.peer.on('error', (evt) => {
+      window.alert('Connection Error: ' + evt.type)
+      this.connectionError()
+    })
     const conn = this.peer.connect('zIKosj1p' + this.matchName)
     conn.on('open', () => {
       this.connectedToServer(conn)
     })
+    this.updateHeaderState()
   }
 }
 
