@@ -1,4 +1,4 @@
-import './grid.css'
+import './grid.square.css'
 import Peer from 'simple-peer'
 import * as firebase from 'firebase/app'
 import 'firebase/database'
