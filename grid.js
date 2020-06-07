@@ -1,18 +1,5 @@
 import './grid.square.css'
-import Peer from 'simple-peer'
-import * as firebase from 'firebase/app'
-import 'firebase/database'
-
-var firebaseConfig = {
-  apiKey: 'AIzaSyCyX-q1E4yx99x_Y2GEyOLPo-Gln_VomqI',
-  authDomain: 'sodoku-pardo.firebaseapp.com',
-  databaseURL: 'https://sodoku-pardo.firebaseio.com',
-  projectId: 'sodoku-pardo',
-  storageBucket: 'sodoku-pardo.appspot.com',
-  messagingSenderId: '1015422403353'
-}
-firebase.initializeApp(firebaseConfig)
-const firebaseDatabase = firebase.database()
+import Networking from './networking.js'
 
 const BLUE = 'b'
 const RED = 'r'
@@ -47,13 +34,10 @@ function GridGame () {
     this.currentPlayerElement = null
     this.otherPlayerElement = null
     // networking
-    this.matchHosting = false
-    this.matchJoining = false
-    this.matchWaitingConnection = false
-    this.matchName = null
     this.matchPlayer = BLUE // server blue | client red
-    this.peerOfferSent = false
-    this.peerAnswerSent = false
+    this.networking = new Networking()
+    this.networking.initialize()
+    this.attachNetworkingEvents()
 
     this.attachUIEvents()
     this.createDom()
@@ -154,7 +138,7 @@ function GridGame () {
 
   this.onClickLineDom = function (x0, y0, x1, y1) {
     if (this.shouldPreventClick()) { return }
-    if (this.matchJoining) {
+    if (this.networking.joining) {
       // if we are the client send clicks to server
       return this.sendClick(x0, y0, x1, y1)
     }
@@ -184,14 +168,14 @@ function GridGame () {
     hostBTN.classList.remove('lock', 'hide')
     resetBTN.classList.remove('lock', 'hide')
     connectionStatusLabel.innerText = ''
-    if (this.matchWaitingConnection) {
+    if (this.networking.waitingConnection) {
       connectionStatusLabel.innerText = 'Waiting Connection'
     }
-    if (this.matchHosting) {
+    if (this.networking.hosting) {
       hostBTN.classList.add('lock')
       joinBTN.classList.add('hide')
     }
-    if (this.matchJoining) {
+    if (this.networking.joining) {
       joinBTN.classList.add('lock')
       hostBTN.classList.add('hide')
       resetBTN.classList.add('hide')
@@ -415,174 +399,85 @@ function GridGame () {
 
   // networking guards
   this.shouldPreventClick = function () {
-    if (this.matchWaitingConnection) { return true }
-    if (this.matchHosting || this.matchJoining) {
+    if (this.networking.waitingConnection) { return true }
+    if (this.networking.hosting || this.networking.joining) {
       return this.currentPlayer !== this.matchPlayer
     }
     return false
   }
   this.isOnlineMatch = function () {
-    return this.matchHosting || this.matchJoining
+    return this.networking.hosting || this.networking.joining
   }
 
   // networking events
+
   this.sendReset = function () {
-    if (!this.matchHosting) { return }
-    this.sendData({ action: 'reset' })
+    if (!this.networking.hosting) { return }
+    this.networking.sendEvent('reset')
   }
 
   this.sendClick = function (x0, y0, x1, y1) {
-    this.sendData({
-      action: 'click',
-      x0: x0,
-      y0: y0,
-      x1: x1,
-      y1: y1
-    })
+    this.networking.sendEvent(
+      'click',
+      {
+        x0: x0,
+        y0: y0,
+        x1: x1,
+        y1: y1
+      })
   }
 
   this.sendUpdate = function () {
-    if (!this.matchHosting) { return }
-    if (this.matchWaitingConnection) { return }
-    this.sendData({
-      action: 'update',
-      serializedData: this.serialize()
+    if (!this.networking.hosting) { return }
+    if (this.networking.waitingConnection) { return }
+    this.networking.sendEvent('update', this.serialize())
+  }
+
+  this.attachNetworkingEvents = function () {
+    this.networking.on('network_reset', (data) => {
+      this.resetGame()
     })
-  }
 
-  this.network_reset = function (data) {
-    this.resetGame()
-  }
-
-  this.network_update = function (data) {
-    this.unserialize(data.serializedData)
-  }
-
-  this.network_click = function (data) {
-    if (this.currentPlayer === this.matchPlayer) {
-      // the client cannot click if the server
-      // is the current player
-      return
-    }
-    this.onClickLineServer(data.x0, data.y0, data.x1, data.y1)
-  }
-
-  this.sendData = function (data) {
-    this.peer.send(JSON.stringify(data))
-  }
-
-  this.handlePeerData = function (data) {
-    console.log(data)
-    data = JSON.parse(data)
-    if (data.action) {
-      this['network_' + data.action](data)
-    }
-  }
-
-  // networking
-  this.connectionError = function () {
-    // reset networking state
-    this.matchHosting = false
-    this.matchJoining = false
-    this.matchWaitingConnection = false
-    this.peerOfferSent = false
-    this.peerAnswerSent = false
-    this.updateHeaderState()
-  }
-
-  this.connectionReceived = function (conn) {
-    // server received a connection
-    console.log('connection received')
-    this.matchWaitingConnection = false
-    this.conn = conn
-    this.resetGame()
-
-    conn.on('close', () => {
-      window.alert('Connection lost')
-      this.connectionError()
+    this.networking.on('network_update', (data) => {
+      this.unserialize(data)
     })
-    this.updateHeaderState()
-  }
 
-  this.connectedToServer = function () {
-    // connected to server
-    console.log('connected to server')
-    this.matchWaitingConnection = false
-    this.resetGame()
-    this.updateHeaderState()
-  }
-
-  this.handleFirebaseUpdate = function (snapshot) {
-    // firebase is used to share the signaling from peer
-    if (snapshot.val() === '') { return }
-    const data = JSON.parse(snapshot.val())
-    // the host ignores the peer offer
-    if (data.type === 'offer' && this.matchHosting) { return }
-    // the client ignores the peer answer
-    if (data.type === 'answer' && this.matchJoining) { return }
-    // skip sending the offer / answer again
-    if (this.peerOfferSent && data.type === 'offer') { return }
-    if (this.peerAnswerSent && data.type === 'answer') { return }
-
-    this.peerOfferSent = data.type === 'offer'
-    this.peerAnswerSent = data.type === 'answer'
-    // send the signal to connect
-    this.peer.signal(data)
-  }
-
-  this.connectFirebaseDatabase = function (name) {
-    this.databaseRef = firebaseDatabase.ref('dots-' + name)
-    this.databaseRef.on('value', snapshot => {
-      this.handleFirebaseUpdate(snapshot)
+    this.networking.on('network_click', (data) => {
+      if (this.currentPlayer === this.matchPlayer) {
+        // the client cannot click if the server
+        // is the current player
+        return
+      }
+      this.onClickLineServer(data.x0, data.y0, data.x1, data.y1)
     })
-  }
 
-  this.attachPeerEvents = function (peer) {
-    peer.on('error', (err) => {
-      window.alert(err)
-      this.connectionError()
+    this.networking.on('pre-connection', () => {
+      this.updateHeaderState()
     })
-    peer.on('signal', data => {
-      console.log('SIGNAL', JSON.stringify(data))
-      this.databaseRef.set(JSON.stringify(data))
+
+    this.networking.on('connected', () => {
+      this.resetGame()
+      this.updateHeaderState()
     })
-    this.peer.on('connect', () => {
-      console.log('connected peer')
-      this.databaseRef.set('')
-      this.connectedToServer()
-    })
-    this.peer.on('data', (data) => {
-      this.handlePeerData(data)
+
+    this.networking.on('error', () => {
+      window.alert('Connection problems')
+      this.updateHeaderState()
     })
   }
 
   this.hotsMatch = function () {
-    this.matchWaitingConnection = true
-    this.matchHosting = true
     this.matchPlayer = BLUE
-    this.matchName = window.prompt('Put a name to the match', this.matchName ? this.matchName : '')
-    this.updateHeaderState()
-    if (this.databaseRef) { this.databaseRef.off('value') }
-    this.connectFirebaseDatabase(this.matchName)
-    this.databaseRef.set('')
-    this.peer = new Peer({ initiator: true, trickle: false })
-    this.attachPeerEvents(this.peer)
+    this.networking.hotsMatch(
+      window.prompt('Put a name to the match')
+    )
   }
 
   this.joinMatch = function () {
-    this.matchWaitingConnection = true
-    this.matchJoining = true
     this.matchPlayer = RED
-    this.matchName = window.prompt('I need the name of the match', this.matchName ? this.matchName : '')
-    this.updateHeaderState()
-    if (this.databaseRef) { this.databaseRef.off('value') }
-    this.connectFirebaseDatabase(this.matchName)
-    this.peer = new Peer({ initiator: false, trickle: false })
-    this.attachPeerEvents(this.peer)
-    // client will read the value already present in the store
-    this.databaseRef.ref.once('value').then(snapshot => {
-      this.handleFirebaseUpdate(snapshot)
-    })
+    this.networking.joinMatch(
+      window.prompt('I need the name of the match')
+    )
   }
 }
 

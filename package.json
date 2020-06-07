@@ -6,7 +6,7 @@
   "scripts": {
     "build": "rm -R docs && mkdir docs && parcel build -d docs --public-url https://pardo.github.io/dots_and_lines/ index.html",
     "serve": "parcel serve --no-autoinstall index.html",
-    "test": "standard --fix grid.js",
+    "test": "standard --fix *.js",
     "ncu": "ncu"
   },
   "author": "",
