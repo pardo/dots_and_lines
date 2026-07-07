@@ -2,23 +2,24 @@
   "name": "dots_and_lines",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "grid.js",
   "scripts": {
-    "build": "rm -R docs && mkdir docs && parcel build -d docs --public-url https://pardo.github.io/dots_and_lines/ index.html",
-    "serve": "parcel serve --no-autoinstall index.html",
+    "dev": "vite",
+    "serve": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "standard --fix *.js",
     "ncu": "ncu"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "firebase": "^7.15.0",
-    "simple-peer": "^9.7.2"
+    "trystero": "^0.21.8"
   },
   "devDependencies": {
     "npm-check-updates": "^6.0.1",
-    "parcel-bundler": "^1.12.4",
-    "parcel-plugin-bundle-visualiser": "^1.2.0",
-    "standard": "^14.3.4"
+    "standard": "^14.3.4",
+    "vite": "^5.4.0"
   }
 }

@@ -11,6 +11,8 @@ function GridGame () {
       width: 6,
       height: 6
     }
+    // the stylesheet derives line/block sizes from the column count
+    document.documentElement.style.setProperty('--cols', this.size.width)
 
     this.serializedHistory = []
     // could be either blue or red
@@ -48,14 +50,62 @@ function GridGame () {
     window.document.querySelector('#reset').addEventListener('click', (e) => {
       this.resetGame()
     })
+    window.document.querySelector('#leave').addEventListener('click', (e) => {
+      this.leaveMatch()
+    })
     window.document.querySelector('#join').addEventListener('click', (e) => {
       e.preventDefault()
-      this.joinMatch()
+      this.openMatchForm('join')
     })
     window.document.querySelector('#host').addEventListener('click', (e) => {
       e.preventDefault()
-      this.hotsMatch()
+      this.openMatchForm('host')
     })
+    window.document.querySelector('#matchForm').addEventListener('submit', (e) => {
+      e.preventDefault()
+      const name = window.document.querySelector('#matchName').value.trim().toLowerCase()
+      if (!name) { return }
+      window.localStorage.setItem('lastMatch', name)
+      this.closeMatchForm()
+      if (this.matchFormMode === 'host') {
+        this.hostMatch(name)
+      } else {
+        this.joinMatch(name)
+      }
+    })
+    window.document.querySelector('#matchCancel').addEventListener('click', () => {
+      this.closeMatchForm()
+    })
+    window.document.querySelector('#matchName').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { this.closeMatchForm() }
+      // don't trigger game shortcuts (like undo) while typing a name
+      e.stopPropagation()
+    })
+  }
+
+  this.openMatchForm = function (mode) {
+    this.matchFormMode = mode
+    const nameInput = window.document.querySelector('#matchName')
+    window.document.querySelector('#matchForm').classList.remove('hide')
+    window.document.querySelector('#matchGo').innerText = mode.toUpperCase()
+    if (mode === 'host') {
+      nameInput.value = this.randomMatchName()
+    } else {
+      nameInput.value = window.localStorage.getItem('lastMatch') || ''
+    }
+    nameInput.focus()
+    nameInput.select()
+  }
+
+  this.closeMatchForm = function () {
+    window.document.querySelector('#matchForm').classList.add('hide')
+  }
+
+  this.randomMatchName = function () {
+    const adjectives = ['brave', 'sneaky', 'fuzzy', 'rapid', 'lucky', 'silent', 'wild', 'cosmic']
+    const animals = ['fox', 'panda', 'otter', 'hawk', 'tiger', 'crab', 'wolf', 'koala']
+    const pick = (list) => list[Math.floor(Math.random() * list.length)]
+    return `${pick(adjectives)}-${pick(animals)}-${Math.floor(Math.random() * 90 + 10)}`
   }
 
   this.checkEnd = function () {
@@ -163,22 +213,32 @@ function GridGame () {
     const hostBTN = document.querySelector('#host')
     const joinBTN = document.querySelector('#join')
     const resetBTN = document.querySelector('#reset')
+    const leaveBTN = document.querySelector('#leave')
     const connectionStatusLabel = document.querySelector('#connectionStatus')
-    joinBTN.classList.remove('lock', 'hide')
+    this.closeMatchForm()
     hostBTN.classList.remove('lock', 'hide')
+    joinBTN.classList.remove('lock', 'hide')
     resetBTN.classList.remove('lock', 'hide')
+    leaveBTN.classList.add('hide')
     connectionStatusLabel.innerText = ''
-    if (this.networking.waitingConnection) {
-      connectionStatusLabel.innerText = 'Waiting Connection'
+    if (!this.isOnlineMatch()) {
+      document.body.classList.remove('your-turn')
+      return
     }
-    if (this.networking.hosting) {
-      hostBTN.classList.add('lock')
-      joinBTN.classList.add('hide')
-    }
+    hostBTN.classList.add('hide')
+    joinBTN.classList.add('hide')
+    leaveBTN.classList.remove('hide')
     if (this.networking.joining) {
-      joinBTN.classList.add('lock')
-      hostBTN.classList.add('hide')
       resetBTN.classList.add('hide')
+    }
+    const name = this.networking.matchName
+    if (this.networking.waitingConnection) {
+      leaveBTN.innerText = 'CANCEL'
+      connectionStatusLabel.innerText = `Waiting for opponent — share match “${name}”`
+    } else {
+      leaveBTN.innerText = 'LEAVE'
+      const color = this.matchPlayer === BLUE ? 'Blue' : 'Red'
+      connectionStatusLabel.innerText = `Match “${name}” — you are ${color}`
     }
   }
   this.setBackgroundPlayer = function () {
@@ -461,23 +521,24 @@ function GridGame () {
     })
 
     this.networking.on('error', () => {
-      window.alert('Connection problems')
       this.updateHeaderState()
+      document.querySelector('#connectionStatus').innerText = 'Opponent left the match'
     })
   }
 
-  this.hotsMatch = function () {
+  this.hostMatch = function (name) {
     this.matchPlayer = BLUE
-    this.networking.hotsMatch(
-      window.prompt('Put a name to the match')
-    )
+    this.networking.hostMatch(name)
   }
 
-  this.joinMatch = function () {
+  this.joinMatch = function (name) {
     this.matchPlayer = RED
-    this.networking.joinMatch(
-      window.prompt('I need the name of the match')
-    )
+    this.networking.joinMatch(name)
+  }
+
+  this.leaveMatch = function () {
+    this.networking.disconnect()
+    this.updateHeaderState()
   }
 }
 
@@ -489,6 +550,7 @@ window.addEventListener('load', function () {
 })
 
 window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') { return }
   switch (e.which) {
     case 85:
       // u UNDO

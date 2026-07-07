@@ -1,16 +1,29 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#e0e0e0">
+  <title>Dots and Lines</title>
+</head>
 <body>
   <div class="buttons row">
     <div id="host">HOST</div>
     <div id="join">JOIN</div>
     <div id="reset">RESET</div>
+    <div id="leave" class="hide">LEAVE</div>
     <div class="row-break"></div>
+    <form id="matchForm" class="match-form hide">
+      <input id="matchName" type="text" placeholder="match name" autocomplete="off" maxlength="24">
+      <button id="matchGo" type="submit">GO</button>
+      <button id="matchCancel" type="button">✕</button>
+    </form>
     <div id="connectionStatus"></div>
   </div>
 
   <div class="grid-game-wrap">
     <div id="grid-game"></div>
   </div>
-  <script src="./grid.js"></script>
+  <script type="module" src="./grid.js"></script>
 </body>
 </html>

@@ -1,37 +1,35 @@
 import EventTarget from './simple-events'
-import * as firebase from 'firebase/app'
-import Peer from 'simple-peer'
-import 'firebase/database'
+import { joinRoom } from 'trystero/nostr'
 
-const config = JSON.parse(window.atob([
-  'eyJhcGlLZXkiOiJBSXphU3lDeVgtcTFFNH',
-  'l4OTl4X1kyR0V5T0xQby1HbG5fVm9tcUki',
-  'LCJhdXRoRG9tYWluIjoic29kb2t1LXBhcm',
-  'RvLmZpcmViYXNlYXBwLmNvbSIsImRhdGFi',
-  'YXNlVVJMIjoiaHR0cHM6Ly9zb2Rva3UtcG',
-  'FyZG8uZmlyZWJhc2Vpby5jb20iLCJwcm9q',
-  'ZWN0SWQiOiJzb2Rva3UtcGFyZG8iLCJzdG',
-  '9yYWdlQnVja2V0Ijoic29kb2t1LXBhcmRv',
-  'LmFwcHNwb3QuY29tIiwibWVzc2FnaW5nU2',
-  'VuZGVySWQiOiIxMDE1NDIyNDAzMzUzIn0'
-].join('')))
+// Trystero groups peers by (appId, room). Peers that call joinRoom with the
+// same match name land in the same room and connect over WebRTC; signaling is
+// handled through public relays, so there is no server/config to run.
+const APP_ID = 'dots_and_lines_pardo'
 
-firebase.initializeApp(config)
-const firebaseDatabase = firebase.database()
+// A curated set of open Nostr relays used for WebRTC signaling. Pinning these
+// avoids the auth-gated / whitelisted relays in Trystero's default list, which
+// otherwise log noisy connection failures.
+const RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://nostr.mom',
+  'wss://relay.nostr.band'
+]
 
 function Networking () {
   /*
-   simple 1 on 1 peer connection
-   events that fires
+   simple 1 on 1 peer connection over Trystero
+   events that fire
     .on("pre-connection")
     .on("connected")
     .on("error")
     .on("network_${event.type}")
    net = Networking()
-   net.hotsMatch()
-   net.events.on("connected", function () { })
+   net.hostMatch("room-name")
+   net.on("connected", function () { })
    net.sendEvent("player_died", "data")
-   net.events.on("network_player_died", "data")
+   net.on("network_player_died", function (data) { })
   */
 
   this.initialize = function () {
@@ -39,8 +37,8 @@ function Networking () {
     this.joining = false
     this.waitingConnection = false
     this.matchName = null
-    this.peerOfferSent = false
-    this.peerAnswerSent = false
+    this.room = null
+    this.sendMessage = null
     this.events = new EventTarget()
   }
 
@@ -48,99 +46,64 @@ function Networking () {
     this.events.on(type, callback)
   }
 
-  this.connectionError = function () {
-    // reset networking state
+  this.disconnect = function () {
+    // reset networking state and leave the room
     this.hosting = false
     this.joining = false
     this.waitingConnection = false
-    this.peerOfferSent = false
-    this.peerAnswerSent = false
+    if (this.room) {
+      try { this.room.leave() } catch (e) { /* already gone */ }
+    }
+    this.room = null
+    this.sendMessage = null
   }
 
   this.sendEvent = function (type, data) {
-    this.peer.send(JSON.stringify({ type, data }))
+    if (!this.sendMessage) { return }
+    this.sendMessage({ type, data })
   }
 
-  this.handlePeerData = function (data) {
-    data = JSON.parse(data)
-    console.log(data)
-    this.events.fire(`network_${data.type}`, data.data)
+  this.handlePeerData = function (payload) {
+    // payload is { type, data } as sent by the other peer
+    this.events.fire(`network_${payload.type}`, payload.data)
   }
 
-  this.connectedToServer = function () {
-    // connected to server
-    this.waitingConnection = false
-    this.events.fire('connected')
-  }
+  this.connectRoom = function (name) {
+    this.matchName = name
+    this.room = joinRoom({ appId: APP_ID, relayUrls: RELAY_URLS }, name)
 
-  this.connectFirebaseDatabase = function (name) {
-    this.databaseRef = firebaseDatabase.ref('dots-' + name)
-    this.databaseRef.on('value', snapshot => {
-      this.handleFirebaseUpdate(snapshot)
+    // a single named action carries every game message
+    const [send, receive] = this.room.makeAction('msg')
+    this.sendMessage = send
+    receive((payload) => {
+      this.handlePeerData(payload)
+    })
+
+    this.room.onPeerJoin(() => {
+      this.waitingConnection = false
+      this.events.fire('connected')
+    })
+    this.room.onPeerLeave(() => {
+      // reset state before notifying so listeners see the offline state
+      this.disconnect()
+      this.events.fire('error')
     })
   }
 
-  this.handleFirebaseUpdate = function (snapshot) {
-    // firebase is used to share the signaling from peer
-    if (snapshot.val() === '') { return }
-    const data = JSON.parse(snapshot.val())
-    // the host ignores the peer offer
-    if (data.type === 'offer' && this.hosting) { return }
-    // the client ignores the peer answer
-    if (data.type === 'answer' && this.joining) { return }
-    // skip sending the offer / answer again
-    if (this.peerOfferSent && data.type === 'offer') { return }
-    if (this.peerAnswerSent && data.type === 'answer') { return }
-
-    this.peerOfferSent = data.type === 'offer'
-    this.peerAnswerSent = data.type === 'answer'
-    // send the signal to connect
-    this.peer.signal(data)
-  }
-
-  this.attachPeerEvents = function (peer) {
-    peer.on('error', (err) => {
-      this.events.fire('error', err)
-      this.connectionError()
-    })
-    peer.on('signal', data => {
-      // set signaling value in firebase
-      this.databaseRef.set(JSON.stringify(data))
-    })
-    this.peer.on('connect', () => {
-      this.databaseRef.set('')
-      this.connectedToServer()
-    })
-    this.peer.on('data', (data) => {
-      this.handlePeerData(data)
-    })
-  }
-
-  this.hotsMatch = function (name) {
+  this.hostMatch = function (name) {
+    this.matchName = name
     this.waitingConnection = true
     this.hosting = true
-    this.matchName = name
     this.events.fire('pre-connection')
-    if (this.databaseRef) { this.databaseRef.off('value') }
-    this.connectFirebaseDatabase(this.matchName)
-    this.databaseRef.set('')
-    this.peer = new Peer({ initiator: true, trickle: false })
-    this.attachPeerEvents(this.peer)
+    this.connectRoom(name)
   }
 
   this.joinMatch = function (name) {
+    this.matchName = name
     this.waitingConnection = true
     this.joining = true
-    this.matchName = name
     this.events.fire('pre-connection')
-    if (this.databaseRef) { this.databaseRef.off('value') }
-    this.connectFirebaseDatabase(this.matchName)
-    this.peer = new Peer({ initiator: false, trickle: false })
-    this.attachPeerEvents(this.peer)
-    // client will read the value already present in the store
-    this.databaseRef.ref.once('value').then(snapshot => {
-      this.handleFirebaseUpdate(snapshot)
-    })
+    this.connectRoom(name)
   }
   return this
 }
